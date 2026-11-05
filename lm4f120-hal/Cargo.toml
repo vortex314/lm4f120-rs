@@ -1,0 +1,14 @@
+[package]
+name = "lm4f120-hal"
+version = "0.1.0"
+edition = "2021"
+description = "embedded-hal drivers for the TI Stellaris LM4F120H5QR (Tiva-C class) MCU"
+license = "MIT OR Apache-2.0"
+
+[dependencies]
+embedded-hal = "1.0"
+nb = "1.1"
+
+[profile.release]
+opt-level = "s"
+lto = true
