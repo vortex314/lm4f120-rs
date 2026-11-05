@@ -77,7 +77,11 @@ pub enum UartError {
     Break,
 }
 
-impl embedded_io::Error for UartError {}
+impl embedded_io::Error for UartError {
+    fn kind(&self) -> embedded_io::ErrorKind {
+        embedded_io::ErrorKind::Other
+    }
+}
 
 /// A UART peripheral in 8N1 mode.
 pub struct Uart<I: UartInstance> {

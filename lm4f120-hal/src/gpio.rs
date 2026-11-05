@@ -13,12 +13,10 @@ use crate::sysctl;
 // Register offsets, relative to a port base address.
 const GPIODIR: u32 = 0x400;
 const GPIOAFSEL: u32 = 0x420;
-const GPIODR2R: u32 = 0x500;
 const GPIODR8R: u32 = 0x508;
 const GPIOPUR: u32 = 0x510;
 const GPIOPDR: u32 = 0x514;
 const GPIODEN: u32 = 0x51C;
-const GPIOPCTL: u32 = 0x52C;
 
 /// A GPIO port (one of the port marker types).
 pub trait Port {
@@ -78,6 +76,22 @@ pub struct Pin<P: Port, MODE, const N: u8> {
 #[inline(always)]
 fn data_addr<P: Port, const N: u8>() -> u32 {
     P::BASE + (1u32 << (N as u32 + 2))
+}
+
+/// Read the state of pin `N` (true = high).
+#[inline(always)]
+fn pin_read<P: Port, const N: u8>() -> bool {
+    unsafe { crate::read_reg(data_addr::<P, N>()) & 0x01 != 0 }
+}
+
+#[inline(always)]
+fn pin_set_high<P: Port, const N: u8>() {
+    unsafe { crate::write_reg(data_addr::<P, N>(), 0xFF) };
+}
+
+#[inline(always)]
+fn pin_set_low<P: Port, const N: u8>() {
+    unsafe { crate::write_reg(data_addr::<P, N>(), 0x00) };
 }
 
 fn init_port<P: Port>() {
@@ -147,27 +161,26 @@ impl<P: Port, const N: u8> Pin<P, Output, N> {
 
     /// Drive the pin high.
     pub fn set_high(&mut self) {
-        unsafe { crate::write_reg(data_addr::<P, N>(), 0xFF) };
+        pin_set_high::<P, N>();
     }
 
     /// Drive the pin low.
     pub fn set_low(&mut self) {
-        unsafe { crate::write_reg(data_addr::<P, N>(), 0x00) };
+        pin_set_low::<P, N>();
     }
 
     /// Toggle the pin.
     pub fn toggle(&mut self) {
-        let now_high = self.is_set_high();
-        if now_high {
-            self.set_low();
+        if pin_read::<P, N>() {
+            pin_set_low::<P, N>();
         } else {
-            self.set_high();
+            pin_set_high::<P, N>();
         }
     }
 
     /// Read back the pin state.
     pub fn is_set_high(&self) -> bool {
-        unsafe { crate::read_reg(data_addr::<P, N>()) & 0x01 != 0 }
+        pin_read::<P, N>()
     }
 }
 
@@ -187,12 +200,12 @@ impl<P: Port, const N: u8> Pin<P, Input, N> {
 
     /// Read the pin state.
     pub fn is_high(&self) -> bool {
-        unsafe { crate::read_reg(data_addr::<P, N>()) & 0x01 != 0 }
+        pin_read::<P, N>()
     }
 
     /// Read the pin state (inverted).
     pub fn is_low(&self) -> bool {
-        !self.is_high()
+        !pin_read::<P, N>()
     }
 }
 
@@ -206,37 +219,41 @@ impl<P: Port, const N: u8> ErrorType for Pin<P, Input, N> {
 
 impl<P: Port, const N: u8> OutputPin for Pin<P, Output, N> {
     fn set_low(&mut self) -> Result<(), Infallible> {
-        self.set_low();
+        pin_set_low::<P, N>();
         Ok(())
     }
 
     fn set_high(&mut self) -> Result<(), Infallible> {
-        self.set_high();
+        pin_set_high::<P, N>();
         Ok(())
     }
 }
 
 impl<P: Port, const N: u8> StatefulOutputPin for Pin<P, Output, N> {
     fn is_set_high(&mut self) -> Result<bool, Infallible> {
-        Ok(self.is_set_high())
+        Ok(pin_read::<P, N>())
     }
 
     fn is_set_low(&mut self) -> Result<bool, Infallible> {
-        Ok(!self.is_set_high())
+        Ok(!pin_read::<P, N>())
     }
 
     fn toggle(&mut self) -> Result<(), Infallible> {
-        self.toggle();
+        if pin_read::<P, N>() {
+            pin_set_low::<P, N>();
+        } else {
+            pin_set_high::<P, N>();
+        }
         Ok(())
     }
 }
 
 impl<P: Port, const N: u8> InputPin for Pin<P, Input, N> {
     fn is_high(&mut self) -> Result<bool, Infallible> {
-        Ok(self.is_high())
+        Ok(pin_read::<P, N>())
     }
 
     fn is_low(&mut self) -> Result<bool, Infallible> {
-        Ok(self.is_low())
+        Ok(!pin_read::<P, N>())
     }
 }

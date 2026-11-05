@@ -103,7 +103,16 @@ pub enum I2cError {
     Nack,
 }
 
-impl embedded_hal::i2c::Error for I2cError {}
+impl embedded_hal::i2c::Error for I2cError {
+    fn kind(&self) -> embedded_hal::i2c::ErrorKind {
+        use embedded_hal::i2c::{ErrorKind, NoAcknowledgeSource};
+        match self {
+            I2cError::Bus => ErrorKind::Bus,
+            I2cError::ArbitrationLost => ErrorKind::ArbitrationLoss,
+            I2cError::Nack => ErrorKind::NoAcknowledge(NoAcknowledgeSource::Unknown),
+        }
+    }
+}
 
 /// An I²C master peripheral.
 pub struct I2c<I: I2cInstance> {

@@ -141,6 +141,16 @@ impl<I: SpiInstance> SpiBus<u8> for Spi<I> {
         }
         Ok(())
     }
+
+    fn flush(&mut self) -> Result<(), Self::Error> {
+        unsafe {
+            // Wait for the SSI to go idle (BSY, bit 4).
+            while crate::read_reg(I::BASE + SSISR) & (1 << 4) != 0 {
+                core::hint::spin_loop();
+            }
+        }
+        Ok(())
+    }
 }
 
 impl<I: SpiInstance> Spi<I> {
