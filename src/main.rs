@@ -18,10 +18,10 @@ use embassy_executor::Spawner;
 use embassy_time::{Duration, Instant, Timer};
 use embassy_time_driver::{Driver, TICK_HZ};
 
-use lm4f120_hal::embedded_io::Write;
+use lm4f120_hal::embedded_io::{Read, ReadReady, Write};
 use lm4f120_hal::gpio::{Output, Pin, PortF};
 use lm4f120_hal::setup_80mhz;
-use lm4f120_hal::uart::{Uart, Uart0};
+use lm4f120_hal::uart::{Uart, Uart0, Uart1, Uart2, Uart3, Uart4, Uart5, Uart6, Uart7};
 
 use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
 use embassy_sync::channel::Channel;
@@ -39,7 +39,7 @@ fn init_systick(syst: &mut SYST) {
 
 // ===== SysTick time driver =====
 
-const MAX_TIMERS: usize = 4;
+const MAX_TIMERS: usize = 16;
 
 struct Alarm {
     at: u64,
@@ -54,6 +54,18 @@ impl Alarm {
 
 static TICKS: Mutex<Cell<u64>> = Mutex::new(Cell::new(0));
 static ALARMS: Mutex<RefCell<[Alarm; MAX_TIMERS]>> = Mutex::new(RefCell::new([
+    Alarm::empty(),
+    Alarm::empty(),
+    Alarm::empty(),
+    Alarm::empty(),
+    Alarm::empty(),
+    Alarm::empty(),
+    Alarm::empty(),
+    Alarm::empty(),
+    Alarm::empty(),
+    Alarm::empty(),
+    Alarm::empty(),
+    Alarm::empty(),
     Alarm::empty(),
     Alarm::empty(),
     Alarm::empty(),
@@ -147,10 +159,31 @@ unsafe fn SysTick() {
     }
 }
 
+/// Cycle-accurate elapsed time since boot, derived from the SysTick counter
+/// and the tick counter maintained by the time driver (80 MHz resolution).
+const SYST_CVR: u32 = 0xE000E018;
+
+fn read_cycles() -> u64 {
+    critical_section::with(|cs| {
+        let ticks = TICKS.borrow(cs).get();
+        let cvr = unsafe { core::ptr::read_volatile(SYST_CVR as *const u32) } & 0xFFFFFF;
+        let period = (SYSTICK_RELOAD + 1) as u64;
+        ticks * period + (period - 1 - cvr as u64)
+    })
+}
+
 // ===== Channels =====
 
 static REQUEST: Channel<CriticalSectionRawMutex, u32, 1> = Channel::new();
 static REPLY: Channel<CriticalSectionRawMutex, u32, 1> = Channel::new();
+
+/// A loopback latency measurement reported by one of the UART tasks.
+struct Latency {
+    uart: u8,
+    us: u32,
+}
+
+static LATENCY: Channel<CriticalSectionRawMutex, Latency, 8> = Channel::new();
 
 // ===== Tasks =====
 
@@ -164,6 +197,13 @@ async fn main(spawner: Spawner) {
     spawner.spawn(led_task().unwrap());
     spawner.spawn(requester().unwrap());
     spawner.spawn(responder().unwrap());
+    spawner.spawn(uart1_loopback().unwrap());
+    spawner.spawn(uart2_loopback().unwrap());
+    spawner.spawn(uart3_loopback().unwrap());
+    spawner.spawn(uart4_loopback().unwrap());
+    spawner.spawn(uart5_loopback().unwrap());
+    spawner.spawn(uart6_loopback().unwrap());
+    spawner.spawn(uart7_loopback().unwrap());
 }
 
 #[embassy_executor::task]
@@ -223,6 +263,15 @@ async fn requester() {
         let _ = uart.write(b"speed: ");
         write_u32(&mut uart, count);
         let _ = uart.write(b" round-trips/s\r\n");
+
+        // Drain and print any UART loopback latency reports.
+        while let Ok(r) = LATENCY.try_receive() {
+            let _ = uart.write(b"uart");
+            write_u32(&mut uart, r.uart as u32);
+            let _ = uart.write(b" latency: ");
+            write_u32(&mut uart, r.us);
+            let _ = uart.write(b" us\r\n");
+        }
     }
 }
 
@@ -234,6 +283,65 @@ async fn responder() {
         REPLY.send(req.wrapping_add(1)).await;
     }
 }
+
+/// Generate a loopback task for one UART: send a byte, wait for it to come
+/// back on RX (external loopback cable), and report the round-trip latency.
+macro_rules! loopback_task {
+    ($name:ident, $uart:ty, $id:expr) => {
+        #[embassy_executor::task]
+        async fn $name() {
+            let mut uart = <$uart>::new(115200, CLOCK_HZ);
+            let mut byte = 0u8;
+            loop {
+                let mut total_us = 0u64;
+                let mut ok = 0u32;
+                for _ in 0..32 {
+                    byte = byte.wrapping_add(1);
+                    let _ = uart.write(&[byte]);
+                    let start = read_cycles();
+                    let mut got = false;
+                    let mut end = 0u64;
+                    let mut buf = [0u8; 1];
+                    // Poll until the byte loops back or ~2 ms elapses.
+                    loop {
+                        if uart.read_ready().unwrap_or(false) {
+                            end = read_cycles();
+                            let _ = uart.read(&mut buf);
+                            got = true;
+                            break;
+                        }
+                        if read_cycles() - start > 160_000 {
+                            break;
+                        }
+                    }
+                    if !got {
+                        // No loopback cable on this UART; skip it.
+                        break;
+                    }
+                    total_us += (end - start) / 80;
+                    ok += 1;
+                }
+                if ok > 0 {
+                    LATENCY
+                        .send(Latency {
+                            uart: $id,
+                            us: (total_us / ok as u64) as u32,
+                        })
+                        .await;
+                }
+                Timer::after(Duration::from_millis(500)).await;
+            }
+        }
+    };
+}
+
+loopback_task!(uart1_loopback, Uart<Uart1>, 1);
+loopback_task!(uart2_loopback, Uart<Uart2>, 2);
+loopback_task!(uart3_loopback, Uart<Uart3>, 3);
+loopback_task!(uart4_loopback, Uart<Uart4>, 4);
+loopback_task!(uart5_loopback, Uart<Uart5>, 5);
+loopback_task!(uart6_loopback, Uart<Uart6>, 6);
+loopback_task!(uart7_loopback, Uart<Uart7>, 7);
 
 #[panic_handler]
 fn panic(_info: &PanicInfo) -> ! {

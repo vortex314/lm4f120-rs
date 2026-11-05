@@ -5,7 +5,7 @@
 
 use core::marker::PhantomData;
 
-use embedded_io::{ErrorType, Read, Write};
+use embedded_io::{ErrorType, Read, ReadReady, Write};
 
 use crate::sysctl;
 
@@ -241,6 +241,15 @@ impl<I: UartInstance> Read for Uart<I> {
 
             buf[0] = (crate::read_reg(I::BASE + UARTDR) & 0xFF) as u8;
             Ok(1)
+        }
+    }
+}
+
+impl<I: UartInstance> ReadReady for Uart<I> {
+    fn read_ready(&mut self) -> Result<bool, UartError> {
+        unsafe {
+            // RXFE (bit 4) clear means the receive FIFO is not empty.
+            Ok(crate::read_reg(I::BASE + UARTFR) & (1 << 4) == 0)
         }
     }
 }
