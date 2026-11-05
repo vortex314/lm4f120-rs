@@ -26,6 +26,7 @@ pub use spi::{Spi, SpiError, SpiInstance, Ssi0, Ssi1};
 pub use uart::{
     Uart, Uart0, Uart1, Uart2, Uart3, Uart4, Uart5, Uart6, Uart7, UartError, UartInstance,
 };
+pub use sysctl::setup_80mhz;
 
 // Re-export the trait crates so downstream crates don't need their own copies.
 pub use embedded_hal;

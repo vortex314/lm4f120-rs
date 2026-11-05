@@ -20,12 +20,13 @@ use embassy_time_driver::{Driver, TICK_HZ};
 
 use lm4f120_hal::embedded_io::Write;
 use lm4f120_hal::gpio::{Output, Pin, PortF};
+use lm4f120_hal::setup_80mhz;
 use lm4f120_hal::uart::{Uart, Uart0};
 
 use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
 use embassy_sync::channel::Channel;
 
-const CLOCK_HZ: u32 = 16_000_000;
+const CLOCK_HZ: u32 = 80_000_000;
 const SYSTICK_RELOAD: u32 = (CLOCK_HZ as u64 / TICK_HZ) as u32 - 1;
 
 fn init_systick(syst: &mut SYST) {
@@ -155,6 +156,8 @@ static REPLY: Channel<CriticalSectionRawMutex, u32, 1> = Channel::new();
 
 #[embassy_executor::main]
 async fn main(spawner: Spawner) {
+    setup_80mhz();
+
     let mut cp = cortex_m::Peripherals::take().unwrap();
     init_systick(&mut cp.SYST);
 
