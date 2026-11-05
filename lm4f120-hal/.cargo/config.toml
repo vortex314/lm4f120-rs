@@ -1,0 +1,5 @@
+# The linker script flag (-Tlink.x) is provided by the parent crate's
+# .cargo/config.toml when built inside this workspace tree; keeping it here
+# would concatenate the rustflags and pass -Tlink.x twice.
+[build]
+target = "thumbv7em-none-eabihf"
