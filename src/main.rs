@@ -15,12 +15,15 @@ use cortex_m::peripheral::syst::SystClkSource;
 use cortex_m::peripheral::SYST;
 use critical_section::Mutex;
 use embassy_executor::Spawner;
-use embassy_time::{Duration, Timer};
+use embassy_time::{Duration, Instant, Timer};
 use embassy_time_driver::{Driver, TICK_HZ};
 
 use lm4f120_hal::embedded_io::Write;
 use lm4f120_hal::gpio::{Output, Pin, PortF};
 use lm4f120_hal::uart::{Uart, Uart0};
+
+use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
+use embassy_sync::channel::Channel;
 
 const CLOCK_HZ: u32 = 16_000_000;
 const SYSTICK_RELOAD: u32 = (CLOCK_HZ as u64 / TICK_HZ) as u32 - 1;
@@ -143,6 +146,11 @@ unsafe fn SysTick() {
     }
 }
 
+// ===== Channels =====
+
+static REQUEST: Channel<CriticalSectionRawMutex, u32, 1> = Channel::new();
+static REPLY: Channel<CriticalSectionRawMutex, u32, 1> = Channel::new();
+
 // ===== Tasks =====
 
 #[embassy_executor::main]
@@ -151,7 +159,8 @@ async fn main(spawner: Spawner) {
     init_systick(&mut cp.SYST);
 
     spawner.spawn(led_task().unwrap());
-    spawner.spawn(uart_task().unwrap());
+    spawner.spawn(requester().unwrap());
+    spawner.spawn(responder().unwrap());
 }
 
 #[embassy_executor::task]
@@ -175,12 +184,51 @@ async fn led_task() {
     }
 }
 
-#[embassy_executor::task]
-async fn uart_task() {
-    let mut uart = Uart::<Uart0>::new(115200, CLOCK_HZ);
+/// Writes `n` as a decimal string over the UART.
+fn write_u32(uart: &mut Uart<Uart0>, mut n: u32) {
+    let mut buf = [0u8; 10];
+    let mut i = buf.len();
     loop {
-        let _ = uart.write(b"hello world 2\r\n");
-        Timer::after(Duration::from_millis(400)).await;
+        i -= 1;
+        buf[i] = b'0' + (n % 10) as u8;
+        n /= 10;
+        if n == 0 {
+            break;
+        }
+    }
+    let _ = uart.write(&buf[i..]);
+}
+
+/// Sends a request over the channel, waits for the reply, and reports the
+/// round-trip rate once per second.
+#[embassy_executor::task]
+async fn requester() {
+    let mut uart = Uart::<Uart0>::new(115200, CLOCK_HZ);
+    let _ = uart.write(b"channel ping-pong ready\r\n");
+    let mut n = 0u32;
+
+    loop {
+        let mut count = 0u32;
+        let deadline = Instant::now() + Duration::from_secs(1);
+        while Instant::now() < deadline {
+            REQUEST.send(n).await;
+            let _reply = REPLY.receive().await;
+            count += 1;
+            n = n.wrapping_add(1);
+        }
+
+        let _ = uart.write(b"speed: ");
+        write_u32(&mut uart, count);
+        let _ = uart.write(b" round-trips/s\r\n");
+    }
+}
+
+/// Receives requests and echoes back a reply.
+#[embassy_executor::task]
+async fn responder() {
+    loop {
+        let req = REQUEST.receive().await;
+        REPLY.send(req.wrapping_add(1)).await;
     }
 }
 
