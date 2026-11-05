@@ -17,6 +17,8 @@ const UARTIBRD: u32 = 0x024;
 const UARTFBRD: u32 = 0x028;
 const UARTLCRH: u32 = 0x02C;
 const UARTCTL: u32 = 0x030;
+const UARTDMACTL: u32 = 0x048;
+const UDMA_CHASGN: u32 = 0x400F_F500;
 
 /// A UART peripheral instance.
 pub trait UartInstance {
@@ -24,6 +26,15 @@ pub trait UartInstance {
     const BASE: u32;
     /// UART number used for clock gating.
     const INDEX: u32;
+    /// µDMA receive channel.
+    const RX_DMA_CH: u32;
+    /// µDMA transmit channel.
+    const TX_DMA_CH: u32;
+    /// Channel-assignment (CHASGN) value for the receive channel, 0 if the
+    /// default assignment is already correct (UART0/UART1).
+    const RX_CHASGN: u32;
+    /// Channel-assignment (CHASGN) value for the transmit channel.
+    const TX_CHASGN: u32;
     /// Configure the RX/TX pins for their UART alternate function.
     fn configure_pins();
 }
@@ -47,6 +58,10 @@ pub struct Uart0;
 impl UartInstance for Uart0 {
     const BASE: u32 = 0x4000_C000;
     const INDEX: u32 = 0;
+    const RX_DMA_CH: u32 = 8;
+    const TX_DMA_CH: u32 = 9;
+    const RX_CHASGN: u32 = 0;
+    const TX_CHASGN: u32 = 0;
     fn configure_pins() {
         uart_pin(0x4000_4000, 0, 0); // PA0 RX
         uart_pin(0x4000_4000, 0, 1); // PA1 TX
@@ -58,6 +73,10 @@ pub struct Uart1;
 impl UartInstance for Uart1 {
     const BASE: u32 = 0x4000_D000;
     const INDEX: u32 = 1;
+    const RX_DMA_CH: u32 = 22;
+    const TX_DMA_CH: u32 = 23;
+    const RX_CHASGN: u32 = 0;
+    const TX_CHASGN: u32 = 0;
     fn configure_pins() {
         uart_pin(0x4000_5000, 1, 0); // PB0 RX
         uart_pin(0x4000_5000, 1, 1); // PB1 TX
@@ -69,6 +88,10 @@ pub struct Uart2;
 impl UartInstance for Uart2 {
     const BASE: u32 = 0x4000_E000;
     const INDEX: u32 = 2;
+    const RX_DMA_CH: u32 = 0;
+    const TX_DMA_CH: u32 = 1;
+    const RX_CHASGN: u32 = 0x0001_0000;
+    const TX_CHASGN: u32 = 0x0001_0001;
     fn configure_pins() {
         uart_pin(0x4000_7000, 3, 6); // PD6 RX
         uart_pin(0x4000_7000, 3, 7); // PD7 TX
@@ -80,6 +103,10 @@ pub struct Uart3;
 impl UartInstance for Uart3 {
     const BASE: u32 = 0x4000_F000;
     const INDEX: u32 = 3;
+    const RX_DMA_CH: u32 = 16;
+    const TX_DMA_CH: u32 = 17;
+    const RX_CHASGN: u32 = 0x0002_0010;
+    const TX_CHASGN: u32 = 0x0002_0011;
     fn configure_pins() {
         uart_pin(0x4000_6000, 2, 6); // PC6 RX
         uart_pin(0x4000_6000, 2, 7); // PC7 TX
@@ -91,6 +118,10 @@ pub struct Uart4;
 impl UartInstance for Uart4 {
     const BASE: u32 = 0x4001_0000;
     const INDEX: u32 = 4;
+    const RX_DMA_CH: u32 = 18;
+    const TX_DMA_CH: u32 = 19;
+    const RX_CHASGN: u32 = 0x0002_0012;
+    const TX_CHASGN: u32 = 0x0002_0013;
     fn configure_pins() {
         uart_pin(0x4000_6000, 2, 4); // PC4 RX
         uart_pin(0x4000_6000, 2, 5); // PC5 TX
@@ -102,6 +133,10 @@ pub struct Uart5;
 impl UartInstance for Uart5 {
     const BASE: u32 = 0x4001_1000;
     const INDEX: u32 = 5;
+    const RX_DMA_CH: u32 = 6;
+    const TX_DMA_CH: u32 = 7;
+    const RX_CHASGN: u32 = 0x0002_0006;
+    const TX_CHASGN: u32 = 0x0002_0007;
     fn configure_pins() {
         uart_pin(0x4002_4000, 4, 4); // PE4 RX
         uart_pin(0x4002_4000, 4, 5); // PE5 TX
@@ -113,6 +148,10 @@ pub struct Uart6;
 impl UartInstance for Uart6 {
     const BASE: u32 = 0x4001_2000;
     const INDEX: u32 = 6;
+    const RX_DMA_CH: u32 = 10;
+    const TX_DMA_CH: u32 = 11;
+    const RX_CHASGN: u32 = 0x0002_000A;
+    const TX_CHASGN: u32 = 0x0002_000B;
     fn configure_pins() {
         uart_pin(0x4000_7000, 3, 4); // PD4 RX
         uart_pin(0x4000_7000, 3, 5); // PD5 TX
@@ -124,6 +163,10 @@ pub struct Uart7;
 impl UartInstance for Uart7 {
     const BASE: u32 = 0x4001_3000;
     const INDEX: u32 = 7;
+    const RX_DMA_CH: u32 = 20;
+    const TX_DMA_CH: u32 = 21;
+    const RX_CHASGN: u32 = 0x0002_0014;
+    const TX_CHASGN: u32 = 0x0002_0015;
     fn configure_pins() {
         uart_pin(0x4002_4000, 4, 0); // PE0 RX
         uart_pin(0x4002_4000, 4, 1); // PE1 TX
@@ -180,6 +223,55 @@ impl<I: UartInstance> Uart<I> {
         }
 
         Self { _i: PhantomData }
+    }
+
+    /// Enable µDMA mode for both receive and transmit.
+    pub fn enable_dma(&mut self) {
+        unsafe {
+            // Program the µDMA channel assignment for UARTs that need a
+            // secondary mapping (UART2-7); UART0/UART1 use the defaults.
+            if I::RX_CHASGN != 0 {
+                crate::write_reg(UDMA_CHASGN, I::RX_CHASGN);
+                crate::write_reg(UDMA_CHASGN, I::TX_CHASGN);
+            }
+            crate::write_reg(I::BASE + UARTDMACTL, 0x03); // RXDMAE | TXDMAE
+        }
+    }
+
+    /// Start a µDMA receive into `buf` (UART RX -> memory).
+    pub fn dma_read(&mut self, buf: &mut [u8]) {
+        let n = buf.len();
+        if n == 0 {
+            return;
+        }
+        let dst_end = buf.as_ptr() as u32 + n as u32 - 1;
+        let src_end = I::BASE; // UARTDR
+        crate::dma::disable_channel(I::RX_DMA_CH);
+        crate::dma::setup_channel(I::RX_DMA_CH, src_end, dst_end, false, true, n as u32);
+        crate::dma::enable_channel(I::RX_DMA_CH);
+    }
+
+    /// Start a µDMA transmit from `buf` (memory -> UART TX).
+    pub fn dma_write(&mut self, buf: &[u8]) {
+        let n = buf.len();
+        if n == 0 {
+            return;
+        }
+        let src_end = buf.as_ptr() as u32 + n as u32 - 1;
+        let dst_end = I::BASE; // UARTDR
+        crate::dma::disable_channel(I::TX_DMA_CH);
+        crate::dma::setup_channel(I::TX_DMA_CH, src_end, dst_end, true, false, n as u32);
+        crate::dma::enable_channel(I::TX_DMA_CH);
+    }
+
+    /// Returns true when the µDMA receive transfer has completed.
+    pub fn dma_rx_done(&self) -> bool {
+        crate::dma::channel_done(I::RX_DMA_CH)
+    }
+
+    /// Returns true when the µDMA transmit transfer has completed.
+    pub fn dma_tx_done(&self) -> bool {
+        crate::dma::channel_done(I::TX_DMA_CH)
     }
 }
 

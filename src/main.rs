@@ -18,7 +18,7 @@ use embassy_executor::Spawner;
 use embassy_time::{Duration, Instant, Timer};
 use embassy_time_driver::{Driver, TICK_HZ};
 
-use lm4f120_hal::embedded_io::{Read, ReadReady, Write};
+use lm4f120_hal::embedded_io::Write;
 use lm4f120_hal::gpio::{Output, Pin, PortF};
 use lm4f120_hal::setup_80mhz;
 use lm4f120_hal::uart::{Uart, Uart0, Uart1, Uart2, Uart3, Uart4, Uart5, Uart6, Uart7};
@@ -190,6 +190,7 @@ static LATENCY: Channel<CriticalSectionRawMutex, Latency, 8> = Channel::new();
 #[embassy_executor::main]
 async fn main(spawner: Spawner) {
     setup_80mhz();
+    lm4f120_hal::dma::init();
 
     let mut cp = cortex_m::Peripherals::take().unwrap();
     init_systick(&mut cp.SYST);
@@ -284,50 +285,37 @@ async fn responder() {
     }
 }
 
-/// Generate a loopback task for one UART: send a byte, wait for it to come
-/// back on RX (external loopback cable), and report the round-trip latency.
+/// Generate a loopback task for one UART: DMA-send a 64-byte buffer, DMA-receive
+/// it back (external loopback cable), and report the round-trip time.
 macro_rules! loopback_task {
     ($name:ident, $uart:ty, $id:expr) => {
         #[embassy_executor::task]
         async fn $name() {
             let mut uart = <$uart>::new(115200, CLOCK_HZ);
-            let mut byte = 0u8;
+            uart.enable_dma();
+            let mut tx = [0u8; 64];
+            let mut rx = [0u8; 64];
+            for (i, b) in tx.iter_mut().enumerate() {
+                *b = i as u8;
+            }
             loop {
-                let mut total_us = 0u64;
-                let mut ok = 0u32;
-                for _ in 0..32 {
-                    byte = byte.wrapping_add(1);
-                    let _ = uart.write(&[byte]);
-                    let start = read_cycles();
-                    let mut got = false;
-                    let mut end = 0u64;
-                    let mut buf = [0u8; 1];
-                    // Poll until the byte loops back or ~2 ms elapses.
-                    loop {
-                        if uart.read_ready().unwrap_or(false) {
-                            end = read_cycles();
-                            let _ = uart.read(&mut buf);
-                            got = true;
-                            break;
-                        }
-                        if read_cycles() - start > 160_000 {
-                            break;
-                        }
-                    }
-                    if !got {
-                        // No loopback cable on this UART; skip it.
+                // Arm the receive DMA, then start the transmit DMA.
+                uart.dma_read(&mut rx);
+                let start = read_cycles();
+                uart.dma_write(&tx);
+
+                // Wait for the receive to complete (~20 ms timeout for UARTs
+                // without a loopback cable).
+                let timeout = start + 1_600_000;
+                while !uart.dma_rx_done() {
+                    if read_cycles() > timeout {
                         break;
                     }
-                    total_us += (end - start) / 80;
-                    ok += 1;
                 }
-                if ok > 0 {
-                    LATENCY
-                        .send(Latency {
-                            uart: $id,
-                            us: (total_us / ok as u64) as u32,
-                        })
-                        .await;
+
+                if uart.dma_rx_done() {
+                    let us = ((read_cycles() - start) / 80) as u32;
+                    LATENCY.send(Latency { uart: $id, us }).await;
                 }
                 Timer::after(Duration::from_millis(500)).await;
             }
@@ -345,6 +333,17 @@ loopback_task!(uart7_loopback, Uart<Uart7>, 7);
 
 #[panic_handler]
 fn panic(_info: &PanicInfo) -> ! {
+    let mut uart = Uart::<Uart0>::new(115200, CLOCK_HZ);
+    let _ = uart.write(b"PANIC\r\n");
+    loop {
+        cortex_m::asm::nop();
+    }
+}
+
+#[cortex_m_rt::exception]
+unsafe fn HardFault(_frame: &cortex_m_rt::ExceptionFrame) -> ! {
+    let mut uart = Uart::<Uart0>::new(115200, CLOCK_HZ);
+    let _ = uart.write(b"HARDFAULT\r\n");
     loop {
         cortex_m::asm::nop();
     }

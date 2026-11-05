@@ -14,6 +14,7 @@
 //! the application reconfigures the PLL. Clock gating uses the per-peripheral
 //! run-mode clock registers (RCGCGPIO, RCGCUART, RCGCSSI, RCGCI2C).
 
+pub mod dma;
 pub mod gpio;
 pub mod i2c;
 pub mod spi;
