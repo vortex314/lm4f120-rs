@@ -10,6 +10,7 @@ critical-section = "1"
 embassy-executor = { version = "0.10", features = ["platform-cortex-m", "executor-thread"] }
 embassy-time = { version = "0.5", features = ["tick-hz-1_000"] }
 embassy-time-driver = "0.2"
+lm4f120-hal = { path = "lm4f120-hal" }
 
 [profile.release]
 opt-level = "s"

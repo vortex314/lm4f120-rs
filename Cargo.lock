@@ -231,6 +231,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "embedded-io"
+version = "0.6.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "edd0f118536f44f5ccd48bcb8b111bdc3de888b58c74639dfb034a357d0f206d"
+
+[[package]]
 name = "find-msvc-tools"
 version = "0.1.15"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -288,6 +294,14 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "4744e383959f0db86ede514b809b1c53251889093803c05267acc7d4e7030d70"
 
 [[package]]
+name = "lm4f120-hal"
+version = "0.1.0"
+dependencies = [
+ "embedded-hal 1.0.0",
+ "embedded-io",
+]
+
+[[package]]
 name = "lm4f120-hello"
 version = "0.1.0"
 dependencies = [
@@ -297,6 +311,7 @@ dependencies = [
  "embassy-executor",
  "embassy-time",
  "embassy-time-driver",
+ "lm4f120-hal",
 ]
 
 [[package]]

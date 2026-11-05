@@ -14,16 +14,22 @@
 //! the application reconfigures the PLL. Clock gating uses the per-peripheral
 //! run-mode clock registers (RCGCGPIO, RCGCUART, RCGCSSI, RCGCI2C).
 
-mod gpio;
-mod i2c;
-mod spi;
+pub mod gpio;
+pub mod i2c;
+pub mod spi;
 mod sysctl;
-mod uart;
+pub mod uart;
 
 pub use gpio::{Input, Output, Pin, Port, PortA, PortB, PortC, PortD, PortE, PortF, PortG, PortH, Pull};
 pub use i2c::{I2c, I2c0, I2c1, I2c2, I2c3, I2cError, I2cInstance};
 pub use spi::{Spi, SpiError, SpiInstance, Ssi0, Ssi1};
-pub use uart::{Uart, Uart0, Uart1, UartError, UartInstance};
+pub use uart::{
+    Uart, Uart0, Uart1, Uart2, Uart3, Uart4, Uart5, Uart6, Uart7, UartError, UartInstance,
+};
+
+// Re-export the trait crates so downstream crates don't need their own copies.
+pub use embedded_hal;
+pub use embedded_io;
 
 #[inline(always)]
 pub(crate) unsafe fn read_reg(addr: u32) -> u32 {

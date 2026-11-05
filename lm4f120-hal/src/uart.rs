@@ -64,6 +64,72 @@ impl UartInstance for Uart1 {
     }
 }
 
+/// UART2: RX = PD6, TX = PD7.
+pub struct Uart2;
+impl UartInstance for Uart2 {
+    const BASE: u32 = 0x4000_E000;
+    const INDEX: u32 = 2;
+    fn configure_pins() {
+        uart_pin(0x4000_7000, 3, 6); // PD6 RX
+        uart_pin(0x4000_7000, 3, 7); // PD7 TX
+    }
+}
+
+/// UART3: RX = PC6, TX = PC7.
+pub struct Uart3;
+impl UartInstance for Uart3 {
+    const BASE: u32 = 0x4000_F000;
+    const INDEX: u32 = 3;
+    fn configure_pins() {
+        uart_pin(0x4000_6000, 2, 6); // PC6 RX
+        uart_pin(0x4000_6000, 2, 7); // PC7 TX
+    }
+}
+
+/// UART4: RX = PC4, TX = PC5.
+pub struct Uart4;
+impl UartInstance for Uart4 {
+    const BASE: u32 = 0x4001_0000;
+    const INDEX: u32 = 4;
+    fn configure_pins() {
+        uart_pin(0x4000_6000, 2, 4); // PC4 RX
+        uart_pin(0x4000_6000, 2, 5); // PC5 TX
+    }
+}
+
+/// UART5: RX = PE4, TX = PE5.
+pub struct Uart5;
+impl UartInstance for Uart5 {
+    const BASE: u32 = 0x4001_1000;
+    const INDEX: u32 = 5;
+    fn configure_pins() {
+        uart_pin(0x4002_4000, 4, 4); // PE4 RX
+        uart_pin(0x4002_4000, 4, 5); // PE5 TX
+    }
+}
+
+/// UART6: RX = PD4, TX = PD5.
+pub struct Uart6;
+impl UartInstance for Uart6 {
+    const BASE: u32 = 0x4001_2000;
+    const INDEX: u32 = 6;
+    fn configure_pins() {
+        uart_pin(0x4000_7000, 3, 4); // PD4 RX
+        uart_pin(0x4000_7000, 3, 5); // PD5 TX
+    }
+}
+
+/// UART7: RX = PE0, TX = PE1.
+pub struct Uart7;
+impl UartInstance for Uart7 {
+    const BASE: u32 = 0x4001_3000;
+    const INDEX: u32 = 7;
+    fn configure_pins() {
+        uart_pin(0x4002_4000, 4, 0); // PE0 RX
+        uart_pin(0x4002_4000, 4, 1); // PE1 TX
+    }
+}
+
 /// UART error.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum UartError {
