@@ -14,6 +14,14 @@ const SSIDR: u32 = 0x008;
 const SSISR: u32 = 0x00C;
 const SSICPSR: u32 = 0x010;
 
+// SSICR1 bits.
+const SSE: u32 = 1 << 1; // SSI enable (master when MS, bit 2, is left clear)
+
+// SSISR bits.
+const TNF: u32 = 1 << 1; // transmit FIFO not full
+const RNE: u32 = 1 << 2; // receive FIFO not empty
+const BSY: u32 = 1 << 4; // SSI busy
+
 /// An SSI peripheral instance.
 pub trait SpiInstance {
     /// Base address of the SSI register block.
@@ -28,6 +36,15 @@ fn ssi_pin(port_base: u32, port_index: u32, pin: u8) {
     // SSI pins use GPIOPCTL mux value 0x2 on this family.
     sysctl::enable_gpio(port_index);
     unsafe {
+        // PF0 (NMI) and PD7 are locked at reset; unlock before touching the
+        // commit-protected AFSEL/DEN registers. Only PF0 is used here (SSI1Rx).
+        if (port_index == 5 && pin == 0) || (port_index == 3 && pin == 7) {
+            crate::write_reg(port_base + 0x520, 0x4C4F_434B); // GPIOLOCK key
+            crate::write_reg(
+                port_base + 0x524,
+                crate::read_reg(port_base + 0x524) | (1 << pin), // GPIOCR commit
+            );
+        }
         let afsel = port_base + 0x420;
         let den = port_base + 0x51C;
         let pctl = port_base + 0x52C;
@@ -83,21 +100,31 @@ impl<I: SpiInstance> Spi<I> {
             // Disable while configuring.
             crate::write_reg(base + SSICR1, 0);
 
-            // Pick a prescaler that produces a clock <= freq_hz.
+            // SSInClk = sysclk / (cpsdvsr * (1 + scr)). Pick the fastest clock
+            // at or below freq_hz. cpsdvsr is even (2..=254); scr is 0..=255.
+            // If freq_hz is below sysclk / (254 * 256), this clamps to the
+            // slowest setting the hardware can produce.
+            let target = sysclk.div_ceil(freq_hz.max(1)).max(2);
             let mut cpsdvsr = 2u32;
-            while cpsdvsr < 254 && sysclk / cpsdvsr > freq_hz {
+            while cpsdvsr < 254 && cpsdvsr * 256 < target {
                 cpsdvsr += 2;
             }
+            let scr = if cpsdvsr * 256 >= target {
+                target.div_ceil(cpsdvsr) - 1
+            } else {
+                255u32
+            };
             crate::write_reg(base + SSICPSR, cpsdvsr);
 
-            // CR0: 8-bit data (DSS=7), Motorola frame (FRF=0), SPI mode, SCR=0.
+            // CR0: SCR [15:8], SPH [7], SPO [6], FRF [5:4] = Motorola (0),
+            // DSS [3:0] = 7 (8-bit).
             let spo = if mode.polarity == embedded_hal::spi::Polarity::IdleHigh { 1u32 } else { 0 };
             let sph = if mode.phase == embedded_hal::spi::Phase::CaptureOnSecondTransition { 1u32 } else { 0 };
-            let cr0 = (7 << 8) | (spo << 5) | (sph << 4);
+            let cr0 = 7 | (spo << 6) | (sph << 7) | (scr << 8);
             crate::write_reg(base + SSICR0, cr0);
 
-            // CR1: enable, master mode.
-            crate::write_reg(base + SSICR1, (1 << 1) | (1 << 2));
+            // CR1: enable (SSE); the MS bit is left clear for master mode.
+            crate::write_reg(base + SSICR1, SSE);
         }
 
         Self { _i: PhantomData }
@@ -144,8 +171,8 @@ impl<I: SpiInstance> SpiBus<u8> for Spi<I> {
 
     fn flush(&mut self) -> Result<(), Self::Error> {
         unsafe {
-            // Wait for the SSI to go idle (BSY, bit 4).
-            while crate::read_reg(I::BASE + SSISR) & (1 << 4) != 0 {
+            // Wait for the SSI to go idle (BSY).
+            while crate::read_reg(I::BASE + SSISR) & BSY != 0 {
                 core::hint::spin_loop();
             }
         }
@@ -157,13 +184,13 @@ impl<I: SpiInstance> Spi<I> {
     fn transfer_byte(&mut self, tx: u8) -> u8 {
         let base = I::BASE;
         unsafe {
-            // Wait for TX FIFO not full (TFF, bit 1).
-            while crate::read_reg(base + SSISR) & (1 << 1) != 0 {
+            // Wait for room in the TX FIFO (TNF).
+            while crate::read_reg(base + SSISR) & TNF == 0 {
                 core::hint::spin_loop();
             }
             crate::write_reg(base + SSIDR, tx as u32);
-            // Wait for RX FIFO not empty (RNE, bit 2).
-            while crate::read_reg(base + SSISR) & (1 << 2) == 0 {
+            // Wait for RX data (RNE).
+            while crate::read_reg(base + SSISR) & RNE == 0 {
                 core::hint::spin_loop();
             }
             (crate::read_reg(base + SSIDR) & 0xFF) as u8

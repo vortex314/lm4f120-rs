@@ -15,10 +15,12 @@ lm4f120-rs/
 ├── lm4f120-hal/        # no_std HAL crate (embedded-hal 1.0 drivers)
 │   ├── src/
 │   │   ├── lib.rs      # crate root + register helpers + re-exports
+│   │   ├── delay.rs    # busy-wait delays (embedded-hal DelayNs)
 │   │   ├── gpio.rs     # digital GPIO (typestate pins)
 │   │   ├── uart.rs     # UART0-7 (embedded-io + µDMA)
 │   │   ├── spi.rs      # SSI0-1 in SPI mode
 │   │   ├── i2c.rs      # I2C0-3 master
+│   │   ├── pwm.rs      # motion-control PWM (embedded-hal SetDutyCycle)
 │   │   ├── dma.rs      # µDMA controller
 │   │   └── sysctl.rs   # clock gating + 80 MHz PLL setup
 │   ├── examples/       # gpio_blink, uart_echo, spi_loopback, i2c_scan
@@ -37,6 +39,10 @@ lm4f120-rs/
 - **Clock** — `setup_80mhz()` drives the PLL (16 MHz crystal → 400 MHz VCO → ÷5)
   for an 80 MHz system clock; drivers take the system clock frequency
   explicitly.
+- **Delay** — busy-wait delays implementing `embedded_hal::delay::DelayNs`,
+  driven by the SysTick timer. Note: the `lm4f120-hello` demo also owns SysTick
+  for its `embassy-time` driver, so a program should use one or the other —
+  not both at once.
 - **GPIO** — typestate pins `Pin<PORT, MODE, N>` for ports A–H implementing
   `embedded_hal::digital::{OutputPin, InputPin, StatefulOutputPin}` with
   pull-up/down and drive-strength control.
@@ -46,6 +52,13 @@ lm4f120-rs/
   (read/write/transfer/transfer_in_place/flush).
 - **I²C** — I2C0–3 master implementing `embedded_hal::i2c::I2c` (via
   `transaction`), with SCL/SDA open-drain pin muxing.
+- **PWM** — PWM0 generator 0 implementing `embedded_hal::pwm::SetDutyCycle` on
+  M0PWM0 (PB6) and M0PWM1 (PB7). `Pwm::new(freq_hz, sysclk)` derives the clock
+  divider and 16-bit period (down-count, left-aligned); the achievable range is
+  `sysclk / 2` down to `sysclk / (65536 × 64)`. Notes: M0PWM0/M0PWM1 share the
+  generator, so they share one period; and the PWM clock divider lives in the
+  `RCC` register that `setup_80mhz()` also writes, so run the 80 MHz setup first
+  and create both channels at the same frequency.
 - **µDMA** — 32-channel micro-DMA controller with a software-managed control
   table; `Uart` exposes `dma_read`/`dma_write`/`dma_rx_done`/`dma_tx_done`.
 

@@ -24,7 +24,7 @@ use lm4f120_hal::setup_80mhz;
 use lm4f120_hal::uart::{Uart, Uart0, Uart1, Uart2, Uart3, Uart4, Uart5, Uart6, Uart7};
 
 use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
-use embassy_sync::channel::Channel;
+use embassy_sync::channel::{Channel, Sender};
 
 const CLOCK_HZ: u32 = 80_000_000;
 const SYSTICK_RELOAD: u32 = (CLOCK_HZ as u64 / TICK_HZ) as u32 - 1;
@@ -176,6 +176,36 @@ fn read_cycles() -> u64 {
 
 static REQUEST: Channel<CriticalSectionRawMutex, u32, 1> = Channel::new();
 static REPLY: Channel<CriticalSectionRawMutex, u32, 1> = Channel::new();
+
+ /* 
+enum Message {
+    LedBlink { interval_ms: u32 },
+    LedPulse { duration_ms: u32 },
+    SysRequest(u32)
+}
+
+static REQUEST2: Channel<CriticalSectionRawMutex, Message, 10> = Channel::new();
+static REPLY2: Channel<CriticalSectionRawMutex, Message, 10> = Channel::new();
+
+trait Actor {
+   fn sender() -> Sender<Message>;
+}
+
+struct Led {
+    receiver : Receiver<Message>,
+    sender : Sender<Message>,
+}
+
+impl Led {
+    pub fn run();
+}
+
+impl Actor for Led {
+    fn sender() -> Sender<Message> {
+        sender.clone()
+    }
+}
+*/
 
 /// A loopback latency measurement reported by one of the UART tasks.
 struct Latency {

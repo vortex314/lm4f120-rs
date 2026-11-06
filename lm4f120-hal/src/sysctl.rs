@@ -7,6 +7,7 @@ const RCGCGPIO: u32 = SYSCTL + 0x608;
 const RCGCUART: u32 = SYSCTL + 0x618;
 const RCGCSSI: u32 = SYSCTL + 0x61C;
 const RCGCI2C: u32 = SYSCTL + 0x620;
+const RCGCPWM: u32 = SYSCTL + 0x640;
 
 fn enable(reg: u32, index: u32) {
     unsafe {
@@ -36,6 +37,11 @@ pub fn enable_ssi(index: u32) {
 /// Enable the clock for an I²C module (index = I²C number).
 pub fn enable_i2c(index: u32) {
     enable(RCGCI2C, index);
+}
+
+/// Enable the clock for a PWM module (index = PWM module number).
+pub fn enable_pwm(index: u32) {
+    enable(RCGCPWM, index);
 }
 
 /// Configure the system clock to 80 MHz using the PLL.
