@@ -81,7 +81,7 @@ fn data_addr<P: Port, const N: u8>() -> u32 {
 /// Read the state of pin `N` (true = high).
 #[inline(always)]
 fn pin_read<P: Port, const N: u8>() -> bool {
-    unsafe { crate::read_reg(data_addr::<P, N>()) & 0x01 != 0 }
+    unsafe { crate::read_reg(data_addr::<P, N>()) & (1u32 << N) != 0 }
 }
 
 #[inline(always)]

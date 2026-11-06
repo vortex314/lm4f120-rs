@@ -3,9 +3,11 @@
 
 //! Embassy multi-task demo using `lm4f120-hal` for GPIO and UART.
 //!
-//! The RGB LED (led_task) and UART0 (uart_task) run as two concurrent async
-//! tasks on the Embassy executor. Peripherals come from `lm4f120-hal`; the
-//! SysTick time driver is still hand-rolled because the HAL has no timer.
+//! The RGB LED is driven by an actor (`actor::LedActor`) that owns the pins
+//! and services an Embassy channel mailbox; UART ping-pong and loopback tasks
+//! run alongside it on the Embassy executor. Peripherals come from
+//! `lm4f120-hal`; the SysTick time driver is still hand-rolled because the
+//! HAL has no timer.
 
 use core::cell::{Cell, RefCell};
 use core::panic::PanicInfo;
@@ -19,12 +21,15 @@ use embassy_time::{Duration, Instant, Timer};
 use embassy_time_driver::{Driver, TICK_HZ};
 
 use lm4f120_hal::embedded_io::Write;
-use lm4f120_hal::gpio::{Output, Pin, PortF};
 use lm4f120_hal::setup_80mhz;
 use lm4f120_hal::uart::{Uart, Uart0, Uart1, Uart2, Uart3, Uart4, Uart5, Uart6, Uart7};
 
 use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
-use embassy_sync::channel::{Channel, Sender};
+use embassy_sync::channel::Channel;
+
+mod actor;
+
+use actor::{Color, LedActor, Message};
 
 const CLOCK_HZ: u32 = 80_000_000;
 const SYSTICK_RELOAD: u32 = (CLOCK_HZ as u64 / TICK_HZ) as u32 - 1;
@@ -177,36 +182,6 @@ fn read_cycles() -> u64 {
 static REQUEST: Channel<CriticalSectionRawMutex, u32, 1> = Channel::new();
 static REPLY: Channel<CriticalSectionRawMutex, u32, 1> = Channel::new();
 
- /* 
-enum Message {
-    LedBlink { interval_ms: u32 },
-    LedPulse { duration_ms: u32 },
-    SysRequest(u32)
-}
-
-static REQUEST2: Channel<CriticalSectionRawMutex, Message, 10> = Channel::new();
-static REPLY2: Channel<CriticalSectionRawMutex, Message, 10> = Channel::new();
-
-trait Actor {
-   fn sender() -> Sender<Message>;
-}
-
-struct Led {
-    receiver : Receiver<Message>,
-    sender : Sender<Message>,
-}
-
-impl Led {
-    pub fn run();
-}
-
-impl Actor for Led {
-    fn sender() -> Sender<Message> {
-        sender.clone()
-    }
-}
-*/
-
 /// A loopback latency measurement reported by one of the UART tasks.
 struct Latency {
     uart: u8,
@@ -225,7 +200,8 @@ async fn main(spawner: Spawner) {
     let mut cp = cortex_m::Peripherals::take().unwrap();
     init_systick(&mut cp.SYST);
 
-    spawner.spawn(led_task().unwrap());
+    spawner.spawn(led_actor_task(spawner.clone()).unwrap());
+    spawner.spawn(led_demo().unwrap());
     spawner.spawn(requester().unwrap());
     spawner.spawn(responder().unwrap());
     spawner.spawn(uart1_loopback().unwrap());
@@ -237,25 +213,36 @@ async fn main(spawner: Spawner) {
     spawner.spawn(uart7_loopback().unwrap());
 }
 
+/// Embassy task that hosts the LED actor: the actor owns the RGB pins and
+/// services its mailbox from here for as long as the firmware runs.
 #[embassy_executor::task]
-async fn led_task() {
-    let mut red = Pin::<PortF, Output, 1>::new();
-    let mut blue = Pin::<PortF, Output, 2>::new();
-    let mut green = Pin::<PortF, Output, 3>::new();
-    let mut i = 0u8;
+async fn led_actor_task(spawner: Spawner) {
+    LedActor::new().run(spawner).await;
+}
 
-    loop {
-        red.set_low();
-        blue.set_low();
-        green.set_low();
-        match i % 3 {
-            0 => red.set_high(),
-            1 => green.set_high(),
-            _ => blue.set_high(),
-        }
-        i = i.wrapping_add(1);
-        Timer::after(Duration::from_millis(400)).await;
+/// Demonstration sender: drives the LED actor through its mailbox, showing the
+/// two message kinds (`LedPulse` and `LedBlink`) working together.
+#[embassy_executor::task]
+async fn led_demo() {
+    let mailbox = actor::led_mailbox();
+
+    // Pulse each colour once, then settle into a steady green blink.
+    for color in [Color::Red, Color::Green, Color::Blue] {
+        mailbox
+            .send(Message::LedPulse {
+                duration: Duration::from_millis(250),
+                color,
+            })
+            .await;
+        Timer::after(Duration::from_millis(50)).await;
     }
+
+    mailbox
+        .send(Message::LedBlink {
+            interval: Duration::from_millis(400),
+            color: Color::Green,
+        })
+        .await;
 }
 
 /// Writes `n` as a decimal string over the UART.
