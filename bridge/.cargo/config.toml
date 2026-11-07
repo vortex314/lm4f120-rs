@@ -1,0 +1,5 @@
+# The repo root pins the default target to the MCU (thumbv7em-none-eabihf).
+# This bridge is a host binary, so override it back to the native Linux target
+# when building from within this directory.
+[build]
+target = "x86_64-unknown-linux-gnu"

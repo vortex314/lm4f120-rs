@@ -1,0 +1,12 @@
+[package]
+name = "lm4f120-bridge"
+version = "0.1.0"
+edition = "2021"
+description = "COBS serial <-> UDP bridge for the LM4F120"
+
+[dependencies]
+chrono = "0.4"
+cobs = "0.2"
+log = "0.4"
+minicbor = { version = "2.3", features = ["alloc", "half"] }
+serialport = { version = "4", default-features = false }

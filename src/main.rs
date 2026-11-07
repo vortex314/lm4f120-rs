@@ -3,16 +3,18 @@
 
 //! Embassy multi-task demo using `lm4f120-hal` for GPIO and UART.
 //!
-//! The RGB LED is driven by an actor (`actor::LedActor`) that owns the pins
-//! and services an Embassy channel mailbox; UART ping-pong and loopback tasks
-//! run alongside it on the Embassy executor. Peripherals come from
-//! `lm4f120-hal`; the hand-rolled SysTick time driver lives in the `embassy`
-//! module.
+//! The RGB LED is driven by an actor (`actor::LedActor`). The board's host link
+//! (UART0) is owned by a COBS actor (`cobs_actor::CobsActor`) that exchanges
+//! COBS-framed messages with the Linux `lm4f120-bridge`, which forwards them
+//! over UDP. UART1-7 run DMA loopback demos whose latency reports are sent to
+//! the host as COBS messages, alongside a periodic CBOR sample. Peripherals
+//! come from `lm4f120-hal`; the hand-rolled SysTick time driver lives in the
+//! `embassy` module.
 
 use core::panic::PanicInfo;
 
 use embassy_executor::Spawner;
-use embassy_time::{Duration, Instant, Timer};
+use embassy_time::{Duration, Timer};
 
 use lm4f120_hal::embedded_io::Write;
 use lm4f120_hal::setup_80mhz;
@@ -21,16 +23,18 @@ use lm4f120_hal::uart::{Uart, Uart0, Uart1, Uart2, Uart3, Uart4, Uart5, Uart6, U
 use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
 use embassy_sync::channel::Channel;
 
+use minicbor::Encoder;
+
 mod actor;
+mod cobs_actor;
+mod cobs_frame;
 mod embassy;
 
 use actor::{Color, LedActor, Message};
+use cobs_actor::CobsActor;
 use embassy::{init_systick, read_cycles, CLOCK_HZ};
 
 // ===== Channels =====
-
-static REQUEST: Channel<CriticalSectionRawMutex, u32, 1> = Channel::new();
-static REPLY: Channel<CriticalSectionRawMutex, u32, 1> = Channel::new();
 
 /// A loopback latency measurement reported by one of the UART tasks.
 struct Latency {
@@ -50,10 +54,12 @@ async fn main(spawner: Spawner) {
     let mut cp = cortex_m::Peripherals::take().unwrap();
     init_systick(&mut cp.SYST);
 
+    spawner.spawn(cobs_actor_task().unwrap());
+    spawner.spawn(cobs_heartbeat().unwrap());
+    spawner.spawn(cbor_demo().unwrap());
+    spawner.spawn(latency_reporter().unwrap());
     spawner.spawn(led_actor_task(spawner.clone()).unwrap());
     spawner.spawn(led_demo().unwrap());
-    spawner.spawn(requester().unwrap());
-    spawner.spawn(responder().unwrap());
     spawner.spawn(uart1_loopback().unwrap());
     spawner.spawn(uart2_loopback().unwrap());
     spawner.spawn(uart3_loopback().unwrap());
@@ -61,6 +67,71 @@ async fn main(spawner: Spawner) {
     spawner.spawn(uart5_loopback().unwrap());
     spawner.spawn(uart6_loopback().unwrap());
     spawner.spawn(uart7_loopback().unwrap());
+}
+
+/// Hosts the COBS actor on UART0, the board's host-facing serial link.
+#[embassy_executor::task]
+async fn cobs_actor_task() {
+    CobsActor::<Uart0>::new(115200, CLOCK_HZ).run().await;
+}
+
+/// Periodic heartbeat: posts a small COBS message once a second (board → host).
+#[embassy_executor::task]
+async fn cobs_heartbeat() {
+    let mut n = 0u32;
+    loop {
+        let payload = [
+            0x02,
+            (n & 0xFF) as u8,
+            ((n >> 8) & 0xFF) as u8,
+            ((n >> 16) & 0xFF) as u8,
+            ((n >> 24) & 0xFF) as u8,
+        ];
+        cobs_actor::send(&payload);
+        n = n.wrapping_add(1);
+        Timer::after(Duration::from_secs(1)).await;
+    }
+}
+
+/// Encode a CBOR array `[42, 3.14, "hello"]` into `buf` and return its length.
+fn encode_cbor_sample(buf: &mut [u8]) -> usize {
+    let total = buf.len();
+    let mut enc = Encoder::new(&mut buf[..]);
+    let _ = enc.array(3);
+    let _ = enc.i32(42);
+    let _ = enc.f32(3.14f32);
+    let _ = enc.str("hello");
+    let rest = enc.into_writer();
+    total - rest.len()
+}
+
+/// Periodically sends the CBOR sample message to the host (board → bridge).
+#[embassy_executor::task]
+async fn cbor_demo() {
+    loop {
+        let mut payload = [0u8; 64];
+        payload[0] = 0x03; // message type: CBOR
+        let n = encode_cbor_sample(&mut payload[1..]);
+        cobs_actor::send(&payload[..1 + n]);
+        Timer::after(Duration::from_secs(5)).await;
+    }
+}
+
+/// Forwards UART loopback latency reports to the host as COBS messages.
+#[embassy_executor::task]
+async fn latency_reporter() {
+    loop {
+        let r = LATENCY.receive().await;
+        let payload = [
+            0x01,
+            r.uart,
+            (r.us & 0xFF) as u8,
+            ((r.us >> 8) & 0xFF) as u8,
+            ((r.us >> 16) & 0xFF) as u8,
+            ((r.us >> 24) & 0xFF) as u8,
+        ];
+        cobs_actor::send(&payload);
+    }
 }
 
 /// Embassy task that hosts the LED actor: the actor owns the RGB pins and
@@ -93,63 +164,6 @@ async fn led_demo() {
             color: Color::Green,
         })
         .await;
-}
-
-/// Writes `n` as a decimal string over the UART.
-fn write_u32(uart: &mut Uart<Uart0>, mut n: u32) {
-    let mut buf = [0u8; 10];
-    let mut i = buf.len();
-    loop {
-        i -= 1;
-        buf[i] = b'0' + (n % 10) as u8;
-        n /= 10;
-        if n == 0 {
-            break;
-        }
-    }
-    let _ = uart.write(&buf[i..]);
-}
-
-/// Sends a request over the channel, waits for the reply, and reports the
-/// round-trip rate once per second.
-#[embassy_executor::task]
-async fn requester() {
-    let mut uart = Uart::<Uart0>::new(115200, CLOCK_HZ);
-    let _ = uart.write(b"channel ping-pong ready\r\n");
-    let mut n = 0u32;
-
-    loop {
-        let mut count = 0u32;
-        let deadline = Instant::now() + Duration::from_secs(1);
-        while Instant::now() < deadline {
-            REQUEST.send(n).await;
-            let _reply = REPLY.receive().await;
-            count += 1;
-            n = n.wrapping_add(1);
-        }
-
-        let _ = uart.write(b"speed: ");
-        write_u32(&mut uart, count);
-        let _ = uart.write(b" round-trips/s\r\n");
-
-        // Drain and print any UART loopback latency reports.
-        while let Ok(r) = LATENCY.try_receive() {
-            let _ = uart.write(b"uart");
-            write_u32(&mut uart, r.uart as u32);
-            let _ = uart.write(b" latency: ");
-            write_u32(&mut uart, r.us);
-            let _ = uart.write(b" us\r\n");
-        }
-    }
-}
-
-/// Receives requests and echoes back a reply.
-#[embassy_executor::task]
-async fn responder() {
-    loop {
-        let req = REQUEST.receive().await;
-        REPLY.send(req.wrapping_add(1)).await;
-    }
 }
 
 /// Generate a loopback task for one UART: DMA-send a 64-byte buffer, DMA-receive
