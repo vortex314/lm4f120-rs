@@ -16,6 +16,6 @@ LD_LIBRARY_PATH="$SYSROOT/lib" "$SYSDIR/rust-objcopy" \
     -O binary target/thumbv7em-none-eabihf/release/lm4f120-hello firmware.bin
 
 echo "==> lm4flash firmware.bin"
-lm4flash firmware.bin
+lm4flash firmware.bin -s 0E103320
 
 echo "==> done"

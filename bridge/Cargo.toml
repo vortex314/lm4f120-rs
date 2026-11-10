@@ -2,11 +2,13 @@
 name = "lm4f120-bridge"
 version = "0.1.0"
 edition = "2021"
-description = "COBS serial <-> UDP bridge for the LM4F120"
+description = "egui manager for COBS serial <-> UDP bridges"
 
 [dependencies]
-chrono = "0.4"
-cobs = "0.2"
-log = "0.4"
+cobs = "0.5.1"
+eframe = "0.31"
+libc = "0.2"
 minicbor = { version = "2.3", features = ["alloc", "half"] }
+serde = { version = "1", features = ["derive"] }
+serde_yaml = "0.9"
 serialport = { version = "4", default-features = false }

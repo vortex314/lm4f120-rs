@@ -1,0 +1,16 @@
+# Serial ports to bridge between COBS/UART and UDP.
+# Each entry has a name, a device path, a baud rate, and a UDP port
+# (0 = let the OS pick an ephemeral port).
+ports:
+  - name: LM4F120
+    port: /dev/ttyACM0
+    baud: 115200
+    udp_port: 0
+  - name: LM4F120
+    port: /dev/ttyACM1
+    baud: 115200
+    udp_port: 0
+  - name: ESP32
+    port: /dev/ttyUSB0
+    baud: 115200
+    udp_port: 0

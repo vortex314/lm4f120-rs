@@ -2,7 +2,7 @@
 //!
 //! A message is COBS-encoded and terminated with a single `0x00` delimiter
 //! byte, matching the Linux `lm4f120-bridge` on the other end of the wire.
-//! The encoder/decoder come from the `cobs` crate (no_std, dependency-free).
+//! The encoder/decoder come from the `cobs` crate (no_std).
 
 use cobs::{decode, encode};
 
@@ -30,5 +30,5 @@ pub fn encode_frame(payload: &[u8], out: &mut [u8]) -> usize {
 /// Decode a COBS-encoded `encoded` frame (without the trailing `0x00`) into
 /// `out`. Returns the decoded length, or `None` on a malformed frame.
 pub fn decode_frame(encoded: &[u8], out: &mut [u8]) -> Option<usize> {
-    decode(encoded, out).ok()
+    decode(encoded, out).ok().map(|r| r.frame_size())
 }

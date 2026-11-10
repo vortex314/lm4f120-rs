@@ -29,6 +29,7 @@ mod actor;
 mod cobs_actor;
 mod cobs_frame;
 mod embassy;
+mod msgs;
 
 use actor::{Color, LedActor, Message};
 use cobs_actor::CobsActor;
@@ -97,10 +98,12 @@ async fn cobs_heartbeat() {
 fn encode_cbor_sample(buf: &mut [u8]) -> usize {
     let total = buf.len();
     let mut enc = Encoder::new(&mut buf[..]);
-    let _ = enc.array(3);
-    let _ = enc.i32(42);
-    let _ = enc.f32(3.14f32);
-    let _ = enc.str("hello");
+    let _ = enc.array(2);
+    let _ = enc.str("LM4F120");
+    let _ = enc.begin_array();
+    let _ = enc.u32(121);
+    let _ = enc.u32(123);
+    let _ = enc.end();
     let rest = enc.into_writer();
     total - rest.len()
 }

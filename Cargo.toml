@@ -11,8 +11,9 @@ embassy-executor = { version = "0.10", features = ["platform-cortex-m", "executo
 embassy-time = { version = "0.5", features = ["tick-hz-1_000"] }
 embassy-time-driver = "0.2"
 embassy-sync = "0.8"
-cobs = { version = "0.2", default-features = false }
+cobs = { version = "0.5.1", default-features = false }
 minicbor = { version = "2.3", default-features = false }
+prost = { version = "0.14.4", default-features = false }
 lm4f120-hal = { path = "lm4f120-hal" }
 
 [profile.release]
